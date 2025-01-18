@@ -1,13 +1,20 @@
 const express = require("express");
-const mongoose = require("mongoose");
-const fs = require("fs");
+const cors = require("cors");
 const multer = require("multer");
-const { v4: uuidv4 } = require("uuid");
+const { PrismaClient } = require("@prisma/client");
 const cloudinary = require("cloudinary").v2;
+const fs = require("fs");
+const swaggerUi = require("swagger-ui-express");
+const swaggerDocs = require("./docs/swagger");
 require("dotenv").config();
 
+const prisma = new PrismaClient();
 const app = express();
+
+// Middleware
+app.use(cors());
 app.use(express.json());
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 // Cloudinary Configuration
 cloudinary.config({
@@ -16,123 +23,131 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer storage configuration
+const errorHandler = (err, req, res, next) => {
+  console.error(err.stack);
+  res.status(err.statusCode || 500).json({
+    status: "error",
+    message: err.message || "Internal server error",
+  });
+};
+
+class AppError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+    this.status = `${statusCode}`.startsWith("4") ? "fail" : "error";
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+// Multer Configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = "./uploads";
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir);
-    }
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
     cb(null, uploadDir);
   },
-  filename: (req, file, cb) => cb(null, uuidv4() + file.originalname),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 
 const upload = multer({ storage });
 
-// MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+app.get("/", (req, res) => res.json({ message: "Welcome to Notes API" }));
 
-// Mongoose Schema and Model
-const fileSchema = new mongoose.Schema({
-  fileUrl: { type: String, required: true },
-  year: { type: String, required: true },
-  subject: { type: String, required: true },
-  course: { type: String, required: true },
-  type: { type: String, required: true },
-  folder: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now },
-});
-
-const File = mongoose.model("File", fileSchema);
-
-// Routes
-
-// Upload a file and store in Cloudinary
-app.post("/upload", upload.single("file"), async (req, res) => {
-  try {
-    const { year, type, subject, course, folder } = req.body;
-
-    // Validate input data
-    if (!year || !type || !subject || !course || !folder) {
-      return res.status(400).json({ error: "All fields are required" });
+app.post(
+  "/api/notes",
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new AppError("No file uploaded", 400);
     }
+
+    const { title, year, subject, course, type, folder } = req.body;
 
     const result = await cloudinary.uploader.upload(req.file.path, {
       resource_type: "raw",
       folder,
     });
 
-    const newFile = new File({
-      fileUrl: result.secure_url,
-      year,
-      type,
-      subject,
-      course,
-      folder,
+    const note = await prisma.note.create({
+      data: {
+        title,
+        fileUrl: result.secure_url,
+        year,
+        subject,
+        course,
+        type,
+        folder,
+      },
     });
 
-    await newFile.save();
+    fs.unlinkSync(req.file.path);
+    res.json(note);
+  })
+);
 
-    // Remove local file
-    fs.unlink(req.file.path, (err) => {
-      if (err) console.error("Error deleting local file:", err);
+app.get(
+  "/api/notes",
+  asyncHandler(async (req, res) => {
+    const notes = await prisma.note.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(notes);
+  })
+);
+
+app.get(
+  "/api/notes/:id",
+  asyncHandler(async (req, res) => {
+    const note = await prisma.note.findUnique({
+      where: { id: parseInt(req.params.id) },
     });
 
-    res.json({ msg: "File uploaded", file: newFile });
-  } catch (error) {
-    console.error("Error uploading file:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+    if (!note) {
+      throw new AppError("Note not found", 404);
+    }
 
-// Get all files from MongoDB
-app.get("/files", async (req, res) => {
-  try {
-    const files = await File.find();
-    res.json(files);
-  } catch (error) {
-    console.error("Error fetching files:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+    res.json(note);
+  })
+);
 
-// Get all files from Cloudinary (with pagination)
-app.get("/cloudinary-files", async (req, res) => {
-  try {
-    let allFiles = [];
-    let nextCursor = null;
+app.put(
+  "/api/notes/:id",
+  asyncHandler(async (req, res) => {
+    const note = await prisma.note.update({
+      where: { id: parseInt(req.params.id) },
+      data: req.body,
+    });
 
-    do {
-      const result = await cloudinary.api.resources({
-        resource_type: "raw", // Fetch non-image files
-        type: "upload",
-        max_results: 100, // Fetch 100 files per request
-        next_cursor: nextCursor, // Continue from the last cursor
-      });
+    if (!note) {
+      throw new AppError("Note not found", 404);
+    }
 
-      allFiles = allFiles.concat(
-        result.resources.map((file) => ({
-          public_id: file.public_id,
-          url: file.secure_url,
-          created_at: file.created_at,
-          folder: file.folder, // Include folder information
-        }))
-      );
+    res.json(note);
+  })
+);
 
-      nextCursor = result.next_cursor; // Update cursor for next iteration
-    } while (nextCursor);
+app.delete(
+  "/api/notes/:id",
+  asyncHandler(async (req, res) => {
+    const note = await prisma.note.delete({
+      where: { id: parseInt(req.params.id) },
+    });
 
-    res.json({ files: allFiles });
-  } catch (error) {
-    console.error("Error fetching files from Cloudinary:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+    if (!note) {
+      throw new AppError("Note not found", 404);
+    }
 
-// Server Setup
-const port = process.env.PORT || 5000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+    res.json({ message: "Note deleted successfully" });
+  })
+);
+
+app.use(errorHandler);
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

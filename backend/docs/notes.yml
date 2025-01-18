@@ -1,0 +1,106 @@
+components:
+  schemas:
+    Note:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        fileUrl:
+          type: string
+        year:
+          type: string
+        subject:
+          type: string
+        course:
+          type: string
+        type:
+          type: string
+        folder:
+          type: string
+
+paths:
+  /api/notes:
+    post:
+      tags: [Notes]
+      summary: Upload new note
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              properties:
+                file:
+                  format: binary
+                title:
+                  type: string
+                year:
+                subject:
+                course:
+                type:
+                folder:
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        500:
+          description: Server error
+
+    get:
+      tags: [Notes]
+      summary: Get all notes
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Note"
+
+  /api/notes/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+
+    get:
+      tags: [Notes]
+      summary: Get note by ID
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        404:
+          description: Not found
+
+    put:
+      tags: [Notes]
+      summary: Update note
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+        404:
+          description: Not found
+
+    delete:
+      tags: [Notes]
+      summary: Delete note
+      responses:
+        200:
+          description: Success
+        404:
+          description: Not found
