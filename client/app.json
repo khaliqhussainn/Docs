@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Docs",
+    "slug": "Docs",
+    "version": "1.0.0",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "plugins": [
+      [
+        "expo-document-picker",
+        {
+          "permissions": ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0c90482f-5d05-4e80-ab71-6be67981afc1"
+      }
+    },
+    "android": {
+      "package": "com.khaliqhussainn.Docs",
+      "versionCode": 3,
+      "name": "docs",
+      "displayName": "docs",
+      "icon": "./assets/af.png",
+      "targetSdkVersion": 34,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/af.png",
+        "backgroundColor": "#ffffff"
+      }
+    }
+  }
+}
